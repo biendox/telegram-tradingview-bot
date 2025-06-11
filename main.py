@@ -36,10 +36,8 @@ def telegram_webhook():
     dispatcher.process_update(update)
     return "ok"
 
-# Set webhook when service starts
-@app.before_first_request
-def set_webhook():
-    bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
-
+# Run the app and set webhook on startup
 if __name__ == "__main__":
-    app.run(port=8080)
+    bot.delete_webhook()
+    bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
+    app.run(host="0.0.0.0", port=8080)
