@@ -1,50 +1,45 @@
 import os
 from flask import Flask, request
-from telegram import Bot, Update, ParseMode
-from telegram.ext import CommandHandler, Dispatcher, MessageHandler, Filters
-import threading
+import telegram
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters
 
-app = Flask(__name__)
-
-# Environment variables
-TELEGRAM_TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+WEBHOOK_URL = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}"
 
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = telegram.Bot(token=TOKEN)
+app = Flask(__name__)
+dispatcher = Dispatcher(bot, None, use_context=True)
 
-# Set up dispatcher for message handling
-from telegram.ext import Dispatcher
-
-dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
-
-# Handle /start command
+# Command handlers
 def start(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Bot is running and ready!")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Bot is running via webhook!")
 
-start_handler = CommandHandler("start", start)
-dispatcher.add_handler(start_handler)
-
-# Optional: handle random text messages
 def echo(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="👋 I'm here!")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="📩 Got your message!")
 
+dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
 
-# Flask route to receive TradingView alerts
-@app.route('/alert', methods=['POST'])
+# TradingView webhook handler
+@app.route("/alert", methods=["POST"])
 def alert():
     data = request.json
     message = f"📢 *Signal Alert*\n{data.get('ticker')}\nDirection: *{data.get('direction')}*\nPrice: {data.get('price')}\n\nReason:\n{data.get('description')}"
-    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN)
-    return 'ok'
+    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
+    return "ok"
 
-# Poll Telegram messages in a background thread
-def run_dispatcher():
-    from telegram.ext import Updater
-    updater = Updater(bot=bot, use_context=True)
-    updater.start_polling()
+# Telegram webhook endpoint
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = telegram.Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
 
-threading.Thread(target=run_dispatcher).start()
+# Set webhook when service starts
+@app.before_first_request
+def set_webhook():
+    bot.set_webhook(f"{WEBHOOK_URL}/{TOKEN}")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(port=8080)
